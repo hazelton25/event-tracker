@@ -8,7 +8,8 @@ backend/events.db
 backend/events.db-wal
 backend/events.db-shm
 backend/events.db.pre-import-*
-backend/uploads/
+backend/uploads/*
+!backend/uploads/.gitkeep
 
 # Frontend
 frontend/node_modules/
