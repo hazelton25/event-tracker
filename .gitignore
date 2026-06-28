@@ -1,0 +1,19 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+
+# Database & user data (do NOT commit personal events/images)
+backend/events.db
+backend/events.db-wal
+backend/events.db-shm
+backend/events.db.pre-import-*
+backend/uploads/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# OS / editor
+.DS_Store
+*.log

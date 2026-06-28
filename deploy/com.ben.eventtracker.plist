@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd plist for Event Tracker — boot-time autostart + crash recovery.
+
+  Install:
+    1. Edit the WorkingDirectory + ProgramArguments paths below to your repo.
+    2. cp deploy/com.ben.eventtracker.plist ~/Library/LaunchAgents/
+    3. launchctl load ~/Library/LaunchAgents/com.ben.eventtracker.plist
+    4. launchctl start com.ben.eventtracker
+
+  Logs:    ~/projects/event-tracker/eventtracker.log
+  Stop:    launchctl unload ~/Library/LaunchAgents/com.ben.eventtracker.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ben.eventtracker</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ben/projects/event-tracker/run.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/ben/projects/event-tracker</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/ben/projects/event-tracker/eventtracker.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ben/projects/event-tracker/eventtracker.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PORT</key>
+        <string>8093</string>
+        <key>HOST</key>
+        <string>0.0.0.0</string>
+    </dict>
+</dict>
+</plist>

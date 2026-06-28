@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: #efe6d4;
+  background-image: radial-gradient(#e3d8c2 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: #2b2118;
+  font-family: "Courier Prime", monospace;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- flip mechanics ---------- */
+.flip-wrap {
+  perspective: 1400px;
+  cursor: pointer;
+}
+.flip-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.7s cubic-bezier(0.4, 0.1, 0.2, 1);
+}
+.flip-wrap.flipped .flip-inner {
+  transform: rotateY(180deg);
+}
+.face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  overflow: hidden;
+}
+.face.back {
+  transform: rotateY(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .flip-inner {
+    transition: none;
+  }
+}
+
+/* ---------- ticket stub ---------- */
+.stub {
+  background: #fbf5e9;
+  display: flex;
+  height: 100%;
+}
+.stub-main {
+  flex: 1;
+  padding: 16px 18px;
+  position: relative;
+  border: 1.5px solid #2b2118;
+  border-right: none;
+  overflow: hidden;
+}
+.stub-main::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  right: 0;
+  border-right: 2px dashed #b5a98f;
+}
+.stub-side {
+  width: 84px;
+  border: 1.5px solid #2b2118;
+  border-left: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  background: repeating-linear-gradient(
+    45deg,
+    #fbf5e9,
+    #fbf5e9 6px,
+    #f2e8d2 6px,
+    #f2e8d2 12px
+  );
+}
+.admit {
+  font-family: "Oswald", sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 3px;
+  writing-mode: vertical-rl;
+  text-transform: uppercase;
+}
+.serial {
+  font-family: "Courier Prime", monospace;
+  font-size: 10px;
+  writing-mode: vertical-rl;
+  color: #8a7d63;
+}
+.stamp {
+  font-family: "Courier Prime", monospace;
+  font-weight: 700;
+  font-size: 11px;
+  color: #b33a2b;
+  border: 2px solid #b33a2b;
+  padding: 3px 8px;
+  transform: rotate(-7deg);
+  letter-spacing: 1px;
+  opacity: 0.85;
+  border-radius: 4px;
+}
+.stub-back {
+  background: #fbf5e9;
+  border: 1.5px solid #2b2118;
+  height: 100%;
+  padding: 14px 18px;
+  position: relative;
+}
+.stub-back::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px dashed #b5a98f;
+  pointer-events: none;
+}
+
+/* card thumbnail (front-of-ticket image band) */
+.ticket-thumb {
+  width: 100%;
+  height: 70px;
+  object-fit: cover;
+  border: 1.5px solid #2b2118;
+  filter: sepia(0.25) contrast(1.05);
+  margin-bottom: 10px;
+}
+
+/* scrollbars inside card backs */
+.scroll-area {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #b5a98f transparent;
+}
+.scroll-area::-webkit-scrollbar {
+  width: 6px;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background: #b5a98f;
+  border-radius: 3px;
+}
+
+/* modal overlay */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(43, 33, 24, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+.sheet {
+  background: #fbf5e9;
+  border: 2px solid #2b2118;
+  box-shadow: 6px 8px 0 rgba(43, 33, 24, 0.3);
+  max-width: 540px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
