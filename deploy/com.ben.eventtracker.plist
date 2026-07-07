@@ -46,7 +46,9 @@
         <key>PORT</key>
         <string>8093</string>
         <key>HOST</key>
-        <string>0.0.0.0</string>
+        <string>tailscale</string>
+        <key>SETLISTFM_API_KEY</key>
+        <string>PASTE-YOUR-KEY-HERE</string>
     </dict>
 </dict>
 </plist>

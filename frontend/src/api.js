@@ -18,6 +18,9 @@ export const deleteEvent = (id) =>
 export const searchImages = (q) =>
   api.get("/api/image-search", { params: { q } }).then((r) => r.data.results);
 
+export const searchSetlists = (artist, date) =>
+  api.get("/api/setlist-search", { params: { artist, date } }).then((r) => r.data);
+
 export const setImageByUrl = (id, url) =>
   api.post(`/api/events/${id}/image`, { url }).then((r) => r.data);
 

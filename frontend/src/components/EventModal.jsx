@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { searchSetlists } from "../api";
 
 const FIELD = "w-full bg-stock border-[1.5px] border-ink px-3 py-2 font-mono text-[13px] outline-none focus:border-stamp";
 const LABEL = "font-stamp text-[11px] tracking-[2px] uppercase text-faded mb-1 block";
@@ -20,6 +21,39 @@ export default function EventModal({ event, onClose, onSave }) {
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const [slBusy, setSlBusy] = useState(false);
+  const [slMsg, setSlMsg] = useState("");
+  const [slResults, setSlResults] = useState([]);
+
+  const fetchSetlists = async () => {
+    if (!form.name.trim()) {
+      setSlMsg("Enter the artist name first.");
+      return;
+    }
+    setSlBusy(true);
+    setSlMsg("");
+    setSlResults([]);
+    try {
+      const { results, error } = await searchSetlists(form.name.trim(), form.date);
+      if (error) setSlMsg(error);
+      else if (results.length === 0) setSlMsg("No setlists found — try without a date.");
+      else setSlResults(results);
+    } catch {
+      setSlMsg("Setlist search failed — is the server up?");
+    }
+    setSlBusy(false);
+  };
+
+  const applySetlist = (r) => {
+    setForm((f) => ({
+      ...f,
+      setlist: r.songs.join("\n"),
+      venue: f.venue || r.venue || "",
+      city: f.city || r.city || "",
+    }));
+    setSlResults([]);
+    setSlMsg(`Loaded ${r.song_count} songs from setlist.fm.`);
+  };
 
   const set = (k) => (e) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -83,7 +117,31 @@ export default function EventModal({ event, onClose, onSave }) {
 
           {isConcert ? (
             <div className="col-span-2">
-              <label className={LABEL}>Setlist (one per line)</label>
+              <div className="flex justify-between items-end mb-1">
+                <label className={LABEL + " !mb-0"}>Setlist (one per line)</label>
+                <button
+                  onClick={fetchSetlists}
+                  disabled={slBusy}
+                  className="font-mono text-[11px] underline text-stamp disabled:opacity-50"
+                >
+                  {slBusy ? "searching…" : "fetch from setlist.fm"}
+                </button>
+              </div>
+              {slResults.length > 0 && (
+                <div className="border-[1.5px] border-ink mb-2 divide-y divide-[#e0d6bf]">
+                  {slResults.map((r, i) => (
+                    <button
+                      key={i}
+                      onClick={() => applySetlist(r)}
+                      className="block w-full text-left font-mono text-[12px] px-3 py-2 hover:bg-paper"
+                    >
+                      {r.venue || "Unknown venue"}
+                      {r.city ? `, ${r.city}` : ""} — {r.date} · {r.song_count} songs
+                    </button>
+                  ))}
+                </div>
+              )}
+              {slMsg && <p className="font-mono text-[11px] text-faded mb-1">{slMsg}</p>}
               <textarea
                 className={FIELD}
                 rows={4}

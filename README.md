@@ -56,6 +56,21 @@ cd frontend && npm run dev      # http://localhost:5173
 | GET | `/api/backup` | Download a zip of the DB + uploads |
 | POST | `/api/import` | Restore from a backup zip (multipart `file`) |
 
+## Setlist.fm auto-fill
+
+For concerts, "fetch from setlist.fm" in the event form pulls the real setlist
+(venue and city too). Get a free API key at https://www.setlist.fm/settings/api
+and set `SETLISTFM_API_KEY` in the launchd plist (or env). Without a key the
+button explains what's missing — nothing else breaks.
+
+## Network binding
+
+`HOST=tailscale` (the default in the plist) binds the server to the machine's
+Tailscale IP **and** `127.0.0.1` — reachable from your tailnet and from
+localhost (the backup script), but not from the rest of the LAN. If Tailscale
+is down at start, it falls back to localhost-only and logs a warning.
+`HOST=0.0.0.0` restores LAN-wide binding if you ever want it.
+
 ## Backup & restore
 
 `↓ Backup` (top-right of the app) downloads a single zip containing the SQLite

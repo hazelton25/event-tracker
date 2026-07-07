@@ -30,6 +30,7 @@ DIST_DIR = os.path.normpath(os.path.join(BASE_DIR, "..", "frontend", "dist"))
 
 PORT = int(os.environ.get("PORT", "8093"))
 HOST = os.environ.get("HOST", "0.0.0.0")
+SETLISTFM_API_KEY = os.environ.get("SETLISTFM_API_KEY", "").strip()
 
 ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 USER_AGENT = "EventTracker/1.0 (personal home-lab app)"
@@ -286,6 +287,74 @@ def serve_upload(filename):
 
 
 # --------------------------------------------------------------------------- #
+# Setlist.fm integration (free API key: https://www.setlist.fm/settings/api)
+# --------------------------------------------------------------------------- #
+def parse_setlistfm(data, limit=5):
+    """Flatten setlist.fm search results into simple candidate dicts."""
+    out = []
+    for sl in (data.get("setlist") or [])[:limit]:
+        songs = []
+        for st in ((sl.get("sets") or {}).get("set") or []):
+            for song in (st.get("song") or []):
+                name = (song.get("name") or "").strip()
+                if not name:
+                    continue
+                if song.get("cover"):
+                    name += f" ({song['cover'].get('name', '?')} cover)"
+                songs.append(name)
+        venue = sl.get("venue") or {}
+        out.append({
+            "artist": (sl.get("artist") or {}).get("name"),
+            "venue": venue.get("name"),
+            "city": (venue.get("city") or {}).get("name"),
+            "date": sl.get("eventDate"),  # DD-MM-YYYY (setlist.fm format)
+            "songs": songs,
+            "song_count": len(songs),
+        })
+    return out
+
+
+@app.route("/api/setlist-search", methods=["GET"])
+def setlist_search():
+    if not SETLISTFM_API_KEY:
+        return jsonify({
+            "results": [],
+            "error": "No setlist.fm API key configured. Get a free key at "
+                     "setlist.fm/settings/api and set SETLISTFM_API_KEY.",
+        })
+
+    artist = (request.args.get("artist") or "").strip()
+    date = (request.args.get("date") or "").strip()  # YYYY-MM-DD from the form
+    if not artist:
+        return jsonify({"results": []})
+
+    params = {"artistName": artist, "p": "1"}
+    if date:
+        try:
+            params["date"] = datetime.date.fromisoformat(date).strftime("%d-%m-%Y")
+        except ValueError:
+            pass
+
+    url = "https://api.setlist.fm/rest/1.0/search/setlists?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={
+        "x-api-key": SETLISTFM_API_KEY,
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:  # setlist.fm's "no results"
+            return jsonify({"results": []})
+        return jsonify({"results": [], "error": f"setlist.fm returned HTTP {e.code}"})
+    except Exception as exc:
+        return jsonify({"results": [], "error": str(exc)})
+
+    return jsonify({"results": parse_setlistfm(data)})
+
+
+# --------------------------------------------------------------------------- #
 # Backup / import  (DB + uploads in one zip)
 # --------------------------------------------------------------------------- #
 @app.route("/api/backup", methods=["GET"])
@@ -405,7 +474,36 @@ def serve_frontend(path):
 # --------------------------------------------------------------------------- #
 init_db()
 
+
+def _detect_tailscale_ip():
+    """Return this machine's Tailscale (100.x) IP, or None if not connected."""
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("100.100.100.100", 53))  # Tailscale MagicDNS; no packets sent
+        ip = s.getsockname()[0]
+        s.close()
+        if ip.startswith("100."):
+            return ip
+    except OSError:
+        pass
+    return None
+
+
 if __name__ == "__main__":
     from waitress import serve
-    print(f"Event Tracker listening on http://{HOST}:{PORT}")
-    serve(app, host=HOST, port=PORT)
+
+    if HOST == "tailscale":
+        ts_ip = _detect_tailscale_ip()
+        if ts_ip:
+            listen = f"{ts_ip}:{PORT} 127.0.0.1:{PORT}"
+            print(f"Event Tracker listening on http://{ts_ip}:{PORT} (tailnet) "
+                  f"and http://127.0.0.1:{PORT} (local)")
+        else:
+            listen = f"127.0.0.1:{PORT}"
+            print("WARNING: HOST=tailscale but no Tailscale interface found — "
+                  f"binding localhost only (http://127.0.0.1:{PORT})")
+        serve(app, listen=listen)
+    else:
+        print(f"Event Tracker listening on http://{HOST}:{PORT}")
+        serve(app, host=HOST, port=PORT)
