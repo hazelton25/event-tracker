@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd timer — nightly Event Tracker backup at 03:30.
+
+  Install:
+    1. Edit the two paths below (script path + log path) to your repo.
+    2. cp deploy/com.ben.eventtracker.backup.plist ~/Library/LaunchAgents/
+    3. launchctl load ~/Library/LaunchAgents/com.ben.eventtracker.backup.plist
+    4. Test now:  launchctl start com.ben.eventtracker.backup
+
+  Backups land in ~/backups/event-tracker (14 kept).
+  Override via EnvironmentVariables below (BACKUP_DIR, KEEP, APP_URL).
+
+  Note: launchd runs missed StartCalendarInterval jobs on wake if the
+  machine was asleep at 03:30 — fine for an always-on Mini either way.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ben.eventtracker.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ben/projects/event-tracker/deploy/backup.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/ben/projects/event-tracker/backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ben/projects/event-tracker/backup.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>BACKUP_DIR</key>
+        <string>/Users/ben/backups/event-tracker</string>
+        <key>KEEP</key>
+        <string>14</string>
+    </dict>
+</dict>
+</plist>
