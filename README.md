@@ -114,9 +114,11 @@ reorder existing entries. Each runs once per database (tracked in
 
 ## Data model
 
-`events` table: `id`, `name`, `event_type` (concert/sports/festival/theatre/other),
-`date`, `venue`, `city`, `setlist`, `notes`, `attendees`, `rating` (1–5),
-`image_url`, `created_at`, `updated_at`.
+Schema v3: `events` (name, type, date, venue, city, notes, rating, image),
+plus structured `people` / `event_people` / `setlist_songs` tables. Setlists
+and attendees are edited as plain text but stored relationally — the API
+parses on write (including `(Artist cover)` suffixes) and synthesizes text on
+read. Full details in [docs/SPEC.md](docs/SPEC.md).
 
 Personal data (`events.db`, `uploads/`) is git-ignored — your collection stays
 on your machine.

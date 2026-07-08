@@ -6,6 +6,7 @@ bundle (frontend/dist) as static files, so the whole thing runs on one port.
 """
 import os
 import io
+import re
 import json
 import shutil
 import sqlite3
@@ -50,6 +51,103 @@ CORS(app)  # LAN/Tailscale only; no auth layer by design
 # the schema_version table. Existing pre-migration DBs adopt cleanly because
 # migration 1 is the baseline schema with IF NOT EXISTS.
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Text parsing — the UI edits setlists/attendees as text; storage is relational
+# --------------------------------------------------------------------------- #
+_ATTENDEE_SPLIT = re.compile(r"\s*(?:,|&|\+|\band\b|\bw/\b)\s*", re.IGNORECASE)
+_COVER_SUFFIX = re.compile(r"\s*\(([^)]*?)\s+cover\)\s*$", re.IGNORECASE)
+
+
+def split_attendees(text):
+    """Best-effort split of attendee text ('Sarah & Mike') into names."""
+    if not text:
+        return []
+    return [p.strip() for p in _ATTENDEE_SPLIT.split(text) if p.strip()]
+
+
+def parse_setlist_text(text):
+    """'Peggy-O (Grateful Dead cover)' -> [('Peggy-O', 'Grateful Dead'), ...]"""
+    out = []
+    for line in (text or "").split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        cover = None
+        m = _COVER_SUFFIX.search(line)
+        if m:
+            cover = m.group(1).strip() or None
+            line = _COVER_SUFFIX.sub("", line).strip()
+        if line:
+            out.append((line, cover))
+    return out
+
+
+def song_to_text(title, cover_artist):
+    return f"{title} ({cover_artist} cover)" if cover_artist else title
+
+
+def save_setlist(conn, event_id, text):
+    conn.execute("DELETE FROM setlist_songs WHERE event_id = ?", (event_id,))
+    for pos, (title, cover) in enumerate(parse_setlist_text(text), start=1):
+        conn.execute(
+            "INSERT INTO setlist_songs (event_id, position, title, cover_artist)"
+            " VALUES (?, ?, ?, ?)",
+            (event_id, pos, title, cover),
+        )
+
+
+def save_attendees(conn, event_id, text):
+    conn.execute("DELETE FROM event_people WHERE event_id = ?", (event_id,))
+    for pos, name in enumerate(split_attendees(text), start=1):
+        row = conn.execute(
+            "SELECT id FROM people WHERE name = ? COLLATE NOCASE", (name,)
+        ).fetchone()
+        pid = row["id"] if row else conn.execute(
+            "INSERT INTO people (name) VALUES (?)", (name,)
+        ).lastrowid
+        conn.execute(
+            "INSERT OR IGNORE INTO event_people (event_id, person_id, position)"
+            " VALUES (?, ?, ?)",
+            (event_id, pid, pos),
+        )
+
+
+def _migration_3_structured_fields(conn):
+    """Create people/setlist tables, backfill from legacy text columns, drop them."""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS people (
+        id   INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE
+    );
+    CREATE TABLE IF NOT EXISTS event_people (
+        event_id  INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        person_id INTEGER NOT NULL REFERENCES people(id),
+        position  INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (event_id, person_id)
+    );
+    CREATE TABLE IF NOT EXISTS setlist_songs (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id     INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        position     INTEGER NOT NULL,
+        title        TEXT NOT NULL,
+        cover_artist TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_setlist_event ON setlist_songs(event_id, position);
+    CREATE INDEX IF NOT EXISTS idx_event_people ON event_people(event_id);
+    """)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(events)")}
+    if "setlist" in cols:
+        for r in conn.execute("SELECT id, setlist, attendees FROM events"):
+            save_setlist(conn, r["id"], r["setlist"])
+            save_attendees(conn, r["id"], r["attendees"])
+        for col in ("setlist", "attendees"):
+            try:
+                conn.execute(f"ALTER TABLE events DROP COLUMN {col}")
+            except sqlite3.OperationalError:
+                # SQLite < 3.35 can't drop columns — null them out instead
+                conn.execute(f"UPDATE events SET {col} = NULL")
+
+
 MIGRATIONS = [
     # 1 — baseline schema
     """
@@ -73,11 +171,13 @@ MIGRATIONS = [
     """
     CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
     """,
+    # 3 — structured setlist + attendees (tables defined in the callable)
+    _migration_3_structured_fields,
 ]
 
-EVENT_FIELDS = (
+EVENT_FIELDS = (  # direct columns; setlist/attendees live in their own tables
     "name", "event_type", "date", "venue", "city",
-    "setlist", "notes", "attendees", "rating", "image_url",
+    "notes", "rating", "image_url",
 )
 
 
@@ -85,6 +185,7 @@ def _connect():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
     return conn
 
 
@@ -120,15 +221,55 @@ def init_db():
     with get_db() as conn:
         current = schema_version(conn)
         for number, script in enumerate(MIGRATIONS[current:], start=current + 1):
-            conn.executescript(script)
+            if callable(script):
+                script(conn)
+            else:
+                conn.executescript(script)
             conn.execute("INSERT INTO schema_version (version) VALUES (?)", (number,))
         applied = len(MIGRATIONS) - current
         if applied:
             print(f"DB migrated: v{current} -> v{len(MIGRATIONS)} ({applied} applied)")
 
 
-def row_to_dict(row):
-    return {k: row[k] for k in row.keys()}
+def serialize_events(conn, rows):
+    """Rows -> dicts with synthesized text fields + structured lists.
+
+    `setlist`/`attendees` remain text for the UI; `setlist_songs`/
+    `attendee_list` expose the structured storage.
+    """
+    ids = [r["id"] for r in rows]
+    songs, people = {}, {}
+    if ids:
+        ph = ",".join("?" * len(ids))
+        for r in conn.execute(
+            f"SELECT event_id, title, cover_artist FROM setlist_songs"
+            f" WHERE event_id IN ({ph}) ORDER BY event_id, position", ids
+        ):
+            songs.setdefault(r["event_id"], []).append(
+                {"title": r["title"], "cover_artist": r["cover_artist"]}
+            )
+        for r in conn.execute(
+            f"SELECT ep.event_id, p.name FROM event_people ep"
+            f" JOIN people p ON p.id = ep.person_id"
+            f" WHERE ep.event_id IN ({ph}) ORDER BY ep.event_id, ep.position", ids
+        ):
+            people.setdefault(r["event_id"], []).append(r["name"])
+
+    out = []
+    for r in rows:
+        d = {k: r[k] for k in r.keys()}
+        sl = songs.get(r["id"], [])
+        pl = people.get(r["id"], [])
+        d["setlist_songs"] = sl
+        d["attendee_list"] = pl
+        d["setlist"] = "\n".join(song_to_text(s["title"], s["cover_artist"]) for s in sl) or None
+        d["attendees"] = " & ".join(pl) or None
+        out.append(d)
+    return out
+
+
+def serialize_event(conn, row):
+    return serialize_events(conn, [row])[0]
 
 
 # --------------------------------------------------------------------------- #
@@ -157,16 +298,16 @@ def list_events():
 
     with get_db() as conn:
         rows = conn.execute(sql, params).fetchall()
-    return jsonify([row_to_dict(r) for r in rows])
+        return jsonify(serialize_events(conn, rows))
 
 
 @app.route("/api/events/<int:event_id>", methods=["GET"])
 def get_event(event_id):
     with get_db() as conn:
         row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
-    if row is None:
-        return jsonify({"error": "Event not found"}), 404
-    return jsonify(row_to_dict(row))
+        if row is None:
+            return jsonify({"error": "Event not found"}), 404
+        return jsonify(serialize_event(conn, row))
 
 
 @app.route("/api/events", methods=["POST"])
@@ -186,8 +327,10 @@ def create_event():
             f"INSERT INTO events ({cols}) VALUES ({placeholders})", vals
         )
         new_id = cur.lastrowid
+        save_setlist(conn, new_id, data.get("setlist"))
+        save_attendees(conn, new_id, data.get("attendees"))
         row = conn.execute("SELECT * FROM events WHERE id = ?", (new_id,)).fetchone()
-    return jsonify(row_to_dict(row)), 201
+        return jsonify(serialize_event(conn, row)), 201
 
 
 @app.route("/api/events/<int:event_id>", methods=["PUT"])
@@ -201,18 +344,27 @@ def update_event(event_id):
             return jsonify({"error": "Event not found"}), 404
 
         updates = {f: data[f] for f in EVENT_FIELDS if f in data}
-        if not updates:
-            row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
-            return jsonify(row_to_dict(row))
-
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
-        params = list(updates.values()) + [event_id]
-        conn.execute(
-            f"UPDATE events SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
-            params,
-        )
+        touched = bool(updates)
+        if updates:
+            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            params = list(updates.values()) + [event_id]
+            conn.execute(
+                f"UPDATE events SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+                params,
+            )
+        if "setlist" in data:
+            save_setlist(conn, event_id, data["setlist"])
+            touched = True
+        if "attendees" in data:
+            save_attendees(conn, event_id, data["attendees"])
+            touched = True
+        if touched and not updates:
+            conn.execute(
+                "UPDATE events SET updated_at = datetime('now') WHERE id = ?",
+                (event_id,),
+            )
         row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
-    return jsonify(row_to_dict(row))
+        return jsonify(serialize_event(conn, row))
 
 
 @app.route("/api/events/<int:event_id>", methods=["DELETE"])
@@ -327,7 +479,7 @@ def set_event_image(event_id):
             (local_path, event_id),
         )
         updated = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
-    return jsonify(row_to_dict(updated))
+        return jsonify(serialize_event(conn, updated))
 
 
 @app.route("/uploads/<path:filename>")
@@ -506,19 +658,6 @@ def import_backup():
 # --------------------------------------------------------------------------- #
 # Stats
 # --------------------------------------------------------------------------- #
-import re as _re
-
-_ATTENDEE_SPLIT = _re.compile(r"\s*(?:,|&|\+|\band\b|\bw/\b)\s*", _re.IGNORECASE)
-_COVER_SUFFIX = _re.compile(r"\s*\([^)]*cover\)\s*$", _re.IGNORECASE)
-
-
-def split_attendees(text):
-    """Best-effort split of the free-text attendees field into names."""
-    if not text:
-        return []
-    return [p.strip() for p in _ATTENDEE_SPLIT.split(text) if p.strip()]
-
-
 @app.route("/api/stats", methods=["GET"])
 def stats():
     with get_db() as conn:
@@ -572,30 +711,26 @@ def stats():
         ):
             ratings[str(r["rating"])] = r["c"]
 
-        # Python-side aggregations over free-text fields
-        attendee_counts, song_counts, song_display = {}, {}, {}
-        for r in conn.execute("SELECT attendees, setlist, event_type FROM events"):
-            for person in split_attendees(r["attendees"]):
-                key = person.lower()
-                attendee_counts[key] = attendee_counts.get(key, {"name": person, "count": 0})
-                attendee_counts[key]["count"] += 1
-            if r["event_type"] == "concert" and r["setlist"]:
-                for line in r["setlist"].split("\n"):
-                    song = _COVER_SUFFIX.sub("", line.strip())
-                    if not song:
-                        continue
-                    key = song.lower()
-                    song_counts[key] = song_counts.get(key, 0) + 1
-                    song_display.setdefault(key, song)
+        # Structured tables make these exact (no free-text parsing)
+        top_attendees = [
+            {"name": r["name"], "count": r["c"]}
+            for r in conn.execute(
+                "SELECT p.name, COUNT(*) AS c FROM event_people ep"
+                " JOIN people p ON p.id = ep.person_id"
+                " GROUP BY p.id ORDER BY c DESC, p.name LIMIT 8"
+            )
+        ]
 
-    top_attendees = sorted(
-        attendee_counts.values(), key=lambda a: (-a["count"], a["name"])
-    )[:8]
-    top_songs = [
-        {"song": song_display[k], "count": c}
-        for k, c in sorted(song_counts.items(), key=lambda kv: (-kv[1], kv[0]))
-        if c >= 2
-    ][:10]
+        top_songs = [
+            {"song": r["title"], "count": r["c"]}
+            for r in conn.execute(
+                "SELECT s.title, COUNT(*) AS c FROM setlist_songs s"
+                " JOIN events e ON e.id = s.event_id"
+                " WHERE e.event_type = 'concert'"
+                " GROUP BY s.title COLLATE NOCASE"
+                " HAVING c >= 2 ORDER BY c DESC, s.title LIMIT 10"
+            )
+        ]
 
     return jsonify({
         "totals": {

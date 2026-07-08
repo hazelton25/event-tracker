@@ -243,7 +243,89 @@ def test_import_migrates_old_backup(client):
     assert names == ["Old Backup Event"]
 
 
-# --------------------------------------------------------------------- stats
+# -------------------------------------------------------- structured storage
+def test_parse_setlist_text():
+    assert et.parse_setlist_text("Sea of Love\n\n Peggy-O (Grateful Dead cover) ") == [
+        ("Sea of Love", None), ("Peggy-O", "Grateful Dead"),
+    ]
+    assert et.parse_setlist_text(None) == []
+
+
+def test_structured_fields_round_trip(client):
+    ev = make_event(client, setlist="Sea of Love\nPeggy-O (Grateful Dead cover)",
+                    attendees="Sarah & Mike").get_json()
+    assert ev["setlist_songs"] == [
+        {"title": "Sea of Love", "cover_artist": None},
+        {"title": "Peggy-O", "cover_artist": "Grateful Dead"},
+    ]
+    assert ev["attendee_list"] == ["Sarah", "Mike"]
+    # synthesized text matches what was typed
+    assert ev["setlist"] == "Sea of Love\nPeggy-O (Grateful Dead cover)"
+    assert ev["attendees"] == "Sarah & Mike"
+
+
+def test_update_replaces_and_clears_relations(client):
+    ev = make_event(client).get_json()
+    r = client.put(f"/api/events/{ev['id']}", json={"attendees": "Dad", "setlist": ""})
+    body = r.get_json()
+    assert body["attendee_list"] == ["Dad"]
+    assert body["setlist_songs"] == [] and body["setlist"] is None
+    # untouched relation on partial update
+    r2 = client.put(f"/api/events/{ev['id']}", json={"rating": 3})
+    assert r2.get_json()["attendee_list"] == ["Dad"]
+
+
+def test_people_deduplicate_case_insensitive(client):
+    make_event(client, attendees="Sarah")
+    make_event(client, attendees="sarah")
+    with et.get_db() as conn:
+        n = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
+    assert n == 1
+
+
+def test_delete_cascades_relations(client):
+    ev = make_event(client, attendees="Sarah", setlist="Song A").get_json()
+    client.delete(f"/api/events/{ev['id']}")
+    with et.get_db() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM setlist_songs").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM event_people").fetchone()[0] == 0
+
+
+def test_migration_3_backfills_text_columns(client):
+    """A v2 DB with text setlist/attendees migrates into the new tables."""
+    os.remove(et.DB_PATH)
+    conn = sqlite3.connect(et.DB_PATH)
+    conn.executescript(et.MIGRATIONS[0])   # v1 baseline (has text columns)
+    conn.executescript(et.MIGRATIONS[1])   # v2 index
+    conn.execute(
+        "CREATE TABLE schema_version (version INTEGER NOT NULL,"
+        " applied_at TEXT DEFAULT (datetime('now')))"
+    )
+    conn.executemany("INSERT INTO schema_version (version) VALUES (?)", [(1,), (2,)])
+    conn.execute(
+        "INSERT INTO events (name, event_type, setlist, attendees) VALUES"
+        " ('Old Show', 'concert', 'Fake Empire\nPeggy-O (Grateful Dead cover)', 'Sarah & Mike')"
+    )
+    conn.commit()
+    conn.close()
+
+    et.init_db()
+
+    ev = client.get("/api/events/1").get_json()
+    assert ev["setlist_songs"] == [
+        {"title": "Fake Empire", "cover_artist": None},
+        {"title": "Peggy-O", "cover_artist": "Grateful Dead"},
+    ]
+    assert ev["attendee_list"] == ["Sarah", "Mike"]
+    with et.get_db() as conn:
+        assert et.schema_version(conn) == len(et.MIGRATIONS)
+        # legacy columns are gone (or at minimum nulled on old SQLite)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(events)")}
+        assert "setlist" not in cols or conn.execute(
+            "SELECT setlist FROM events").fetchone()[0] is None
+
+
+# --------------------------------------------------------------- stats
 def test_split_attendees():
     assert et.split_attendees("Sarah & Mike") == ["Sarah", "Mike"]
     assert et.split_attendees("Dad") == ["Dad"]
