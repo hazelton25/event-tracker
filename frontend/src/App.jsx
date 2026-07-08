@@ -4,6 +4,7 @@ import TicketCard from "./components/TicketCard";
 import EventModal from "./components/EventModal";
 import ImagePicker from "./components/ImagePicker";
 import BackupControls from "./components/BackupControls";
+import StatsView from "./components/StatsView";
 import {
   listEvents,
   createEvent,
@@ -34,6 +35,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // event obj or {} for new
   const [imaging, setImaging] = useState(null);
+  const [view, setView] = useState("stubs"); // "stubs" | "stats"
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,6 +90,19 @@ export default function App() {
         <p className="font-mono text-[12px] text-faded mt-3">
           {events.length} event{events.length === 1 ? "" : "s"} logged
         </p>
+        <div className="flex justify-center gap-0 mt-4">
+          {["stubs", "stats"].map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`font-stamp uppercase tracking-[2px] text-[12px] border-[1.5px] border-ink px-5 py-[6px] ${
+                view === v ? "bg-ink text-stock" : "text-ink"
+              } ${v === "stats" ? "border-l-0" : ""}`}
+            >
+              {v === "stubs" ? "The Stubs" : "The Numbers"}
+            </button>
+          ))}
+        </div>
       </header>
 
       {/* mobile backup controls */}
@@ -95,6 +110,10 @@ export default function App() {
         <BackupControls onImported={load} />
       </div>
 
+      {view === "stats" ? (
+        <StatsView />
+      ) : (
+        <>
       {/* controls */}
       <div className="flex flex-wrap gap-2 justify-center px-4 py-6">
         {FILTERS.map((f) => (
@@ -159,6 +178,9 @@ export default function App() {
             />
           ))}
         </div>
+      )}
+
+        </>
       )}
 
       <AnimatePresence>

@@ -243,6 +243,42 @@ def test_import_migrates_old_backup(client):
     assert names == ["Old Backup Event"]
 
 
+# --------------------------------------------------------------------- stats
+def test_split_attendees():
+    assert et.split_attendees("Sarah & Mike") == ["Sarah", "Mike"]
+    assert et.split_attendees("Dad") == ["Dad"]
+    assert et.split_attendees("A, B and C + D") == ["A", "B", "C", "D"]
+    assert et.split_attendees(None) == []
+    assert et.split_attendees("  ") == []
+
+
+def test_stats(client):
+    make_event(client, name="The National", date="2024-05-01", rating=5,
+               attendees="Sarah & Mike", setlist="Fake Empire\nAbout Today")
+    make_event(client, name="The National", date="2025-08-14", rating=4,
+               attendees="Sarah", setlist="Fake Empire\nSea of Love")
+    make_event(client, name="Leafs vs Bruins", event_type="sports",
+               date="2025-11-02", rating=4, attendees="Dad", venue="Scotiabank Arena")
+
+    s = client.get("/api/stats").get_json()
+    assert s["totals"]["events"] == 3
+    assert s["totals"]["avg_rating"] == 4.33
+    assert {"year": "2025", "count": 2} in s["per_year"]
+    assert s["by_type"][0] == {"type": "concert", "count": 2}
+    assert s["top_artists"][0] == {"name": "The National", "count": 2}
+    assert s["top_attendees"][0] == {"name": "Sarah", "count": 2}
+    # only songs seen 2+ times chart
+    assert s["top_songs"] == [{"song": "Fake Empire", "count": 2}]
+    assert s["ratings"]["4"] == 2 and s["ratings"]["5"] == 1
+
+
+def test_stats_empty_db(client):
+    s = client.get("/api/stats").get_json()
+    assert s["totals"]["events"] == 0
+    assert s["totals"]["avg_rating"] is None
+    assert s["per_year"] == [] and s["top_songs"] == []
+
+
 # -------------------------------------------------------------------- images
 def test_image_upload_rejects_bad_extension(client):
     ev = make_event(client).get_json()

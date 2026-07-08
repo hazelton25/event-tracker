@@ -53,6 +53,7 @@ cd frontend && npm run dev      # http://localhost:5173
 | DELETE | `/api/events/<id>` | Delete event |
 | GET | `/api/image-search?q=` | Wikipedia image candidates |
 | POST | `/api/events/<id>/image` | Set image — JSON `{url}` or multipart `file` |
+| GET | `/api/stats` | Aggregates: events/year, by type, top venues/artists/attendees, rating distribution, most-heard songs |
 | GET | `/api/backup` | Download a zip of the DB + uploads |
 | POST | `/api/import` | Restore from a backup zip (multipart `file`) |
 
@@ -122,6 +123,5 @@ on your machine.
 
 ## Roadmap
 
-- Stats dashboard (events/year, most-visited venues, top artists)
 - Ticket-stub photo scans
 - Import from the earlier "Setlist" app

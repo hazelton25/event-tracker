@@ -504,6 +504,117 @@ def import_backup():
 
 
 # --------------------------------------------------------------------------- #
+# Stats
+# --------------------------------------------------------------------------- #
+import re as _re
+
+_ATTENDEE_SPLIT = _re.compile(r"\s*(?:,|&|\+|\band\b|\bw/\b)\s*", _re.IGNORECASE)
+_COVER_SUFFIX = _re.compile(r"\s*\([^)]*cover\)\s*$", _re.IGNORECASE)
+
+
+def split_attendees(text):
+    """Best-effort split of the free-text attendees field into names."""
+    if not text:
+        return []
+    return [p.strip() for p in _ATTENDEE_SPLIT.split(text) if p.strip()]
+
+
+@app.route("/api/stats", methods=["GET"])
+def stats():
+    with get_db() as conn:
+        totals_row = conn.execute(
+            "SELECT COUNT(*) AS events,"
+            " COUNT(DISTINCT venue) AS venues,"
+            " COUNT(DISTINCT city) AS cities,"
+            " AVG(rating) AS avg_rating"
+            " FROM events"
+        ).fetchone()
+
+        per_year = [
+            {"year": r["y"], "count": r["c"]}
+            for r in conn.execute(
+                "SELECT substr(date, 1, 4) AS y, COUNT(*) AS c FROM events"
+                " WHERE date IS NOT NULL AND length(date) >= 4"
+                " GROUP BY y ORDER BY y"
+            )
+        ]
+
+        by_type = [
+            {"type": r["event_type"], "count": r["c"]}
+            for r in conn.execute(
+                "SELECT event_type, COUNT(*) AS c FROM events"
+                " GROUP BY event_type ORDER BY c DESC"
+            )
+        ]
+
+        top_venues = [
+            {"venue": r["venue"], "city": r["city"], "count": r["c"]}
+            for r in conn.execute(
+                "SELECT venue, city, COUNT(*) AS c FROM events"
+                " WHERE venue IS NOT NULL AND venue != ''"
+                " GROUP BY venue, city ORDER BY c DESC, venue LIMIT 8"
+            )
+        ]
+
+        top_artists = [
+            {"name": r["name"], "count": r["c"]}
+            for r in conn.execute(
+                "SELECT name, COUNT(*) AS c FROM events"
+                " WHERE event_type = 'concert'"
+                " GROUP BY name ORDER BY c DESC, name LIMIT 8"
+            )
+        ]
+
+        ratings = {str(n): 0 for n in range(1, 6)}
+        for r in conn.execute(
+            "SELECT rating, COUNT(*) AS c FROM events"
+            " WHERE rating BETWEEN 1 AND 5 GROUP BY rating"
+        ):
+            ratings[str(r["rating"])] = r["c"]
+
+        # Python-side aggregations over free-text fields
+        attendee_counts, song_counts, song_display = {}, {}, {}
+        for r in conn.execute("SELECT attendees, setlist, event_type FROM events"):
+            for person in split_attendees(r["attendees"]):
+                key = person.lower()
+                attendee_counts[key] = attendee_counts.get(key, {"name": person, "count": 0})
+                attendee_counts[key]["count"] += 1
+            if r["event_type"] == "concert" and r["setlist"]:
+                for line in r["setlist"].split("\n"):
+                    song = _COVER_SUFFIX.sub("", line.strip())
+                    if not song:
+                        continue
+                    key = song.lower()
+                    song_counts[key] = song_counts.get(key, 0) + 1
+                    song_display.setdefault(key, song)
+
+    top_attendees = sorted(
+        attendee_counts.values(), key=lambda a: (-a["count"], a["name"])
+    )[:8]
+    top_songs = [
+        {"song": song_display[k], "count": c}
+        for k, c in sorted(song_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        if c >= 2
+    ][:10]
+
+    return jsonify({
+        "totals": {
+            "events": totals_row["events"],
+            "venues": totals_row["venues"],
+            "cities": totals_row["cities"],
+            "avg_rating": round(totals_row["avg_rating"], 2) if totals_row["avg_rating"] else None,
+        },
+        "per_year": per_year,
+        "by_type": by_type,
+        "top_venues": top_venues,
+        "top_artists": top_artists,
+        "ratings": ratings,
+        "top_attendees": top_attendees,
+        "top_songs": top_songs,
+    })
+
+
+# --------------------------------------------------------------------------- #
 # Static frontend (built React bundle)
 # --------------------------------------------------------------------------- #
 @app.route("/", defaults={"path": ""})
