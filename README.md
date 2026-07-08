@@ -93,6 +93,24 @@ launchctl start com.ben.eventtracker
 
 Logs go to `eventtracker.log` in the repo root.
 
+## Tests
+
+```bash
+cd backend && . .venv/bin/activate
+pip install -r requirements-dev.txt
+python -m pytest tests/ -v
+```
+
+Covers CRUD, migrations (fresh, adoption of pre-migration DBs, idempotency),
+backup/import round-trip, import validation (garbage zips, zip-slip), image
+upload validation, and setlist.fm parsing.
+
+## Schema changes
+
+Append a new SQL script to `MIGRATIONS` in `backend/app.py` — never edit or
+reorder existing entries. Each runs once per database (tracked in
+`schema_version`), including on databases restored from older backups.
+
 ## Data model
 
 `events` table: `id`, `name`, `event_type` (concert/sports/festival/theatre/other),

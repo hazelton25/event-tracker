@@ -14,6 +14,7 @@ import tempfile
 import datetime
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 
 from flask import (
     Flask, request, jsonify, send_file, send_from_directory, abort
@@ -24,8 +25,8 @@ from flask_cors import CORS
 # Paths / config
 # --------------------------------------------------------------------------- #
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "events.db")
-UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
+DB_PATH = os.environ.get("EVENTTRACKER_DB", os.path.join(BASE_DIR, "events.db"))
+UPLOADS_DIR = os.environ.get("EVENTTRACKER_UPLOADS", os.path.join(BASE_DIR, "uploads"))
 DIST_DIR = os.path.normpath(os.path.join(BASE_DIR, "..", "frontend", "dist"))
 
 PORT = int(os.environ.get("PORT", "8093"))
@@ -42,25 +43,37 @@ CORS(app)  # LAN/Tailscale only; no auth layer by design
 
 
 # --------------------------------------------------------------------------- #
-# Database
+# Database — versioned migrations
+#
+# To change the schema: append a new SQL script to MIGRATIONS. Never edit or
+# reorder existing entries — each runs exactly once per database, tracked in
+# the schema_version table. Existing pre-migration DBs adopt cleanly because
+# migration 1 is the baseline schema with IF NOT EXISTS.
 # --------------------------------------------------------------------------- #
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
-    event_type  TEXT NOT NULL DEFAULT 'concert',
-    date        TEXT,
-    venue       TEXT,
-    city        TEXT,
-    setlist     TEXT,
-    notes       TEXT,
-    attendees   TEXT,
-    rating      INTEGER,
-    image_url   TEXT,
-    created_at  TEXT DEFAULT (datetime('now')),
-    updated_at  TEXT DEFAULT (datetime('now'))
-);
-"""
+MIGRATIONS = [
+    # 1 — baseline schema
+    """
+    CREATE TABLE IF NOT EXISTS events (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        event_type  TEXT NOT NULL DEFAULT 'concert',
+        date        TEXT,
+        venue       TEXT,
+        city        TEXT,
+        setlist     TEXT,
+        notes       TEXT,
+        attendees   TEXT,
+        rating      INTEGER,
+        image_url   TEXT,
+        created_at  TEXT DEFAULT (datetime('now')),
+        updated_at  TEXT DEFAULT (datetime('now'))
+    );
+    """,
+    # 2 — index for the default sort
+    """
+    CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
+    """,
+]
 
 EVENT_FIELDS = (
     "name", "event_type", "date", "venue", "city",
@@ -68,16 +81,50 @@ EVENT_FIELDS = (
 )
 
 
-def get_db():
+def _connect():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
 
+@contextmanager
+def get_db():
+    """Connection that commits on success, rolls back on error, always closes.
+
+    (sqlite3's own `with conn:` manages transactions but never closes the
+    handle — using it directly leaks a connection per request.)
+    """
+    conn = _connect()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def schema_version(conn):
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_version ("
+        "version INTEGER NOT NULL, applied_at TEXT DEFAULT (datetime('now')))"
+    )
+    row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+    return row[0] or 0
+
+
 def init_db():
+    """Apply any unapplied migrations, in order, each in its own transaction."""
     with get_db() as conn:
-        conn.executescript(SCHEMA)
+        current = schema_version(conn)
+        for number, script in enumerate(MIGRATIONS[current:], start=current + 1):
+            conn.executescript(script)
+            conn.execute("INSERT INTO schema_version (version) VALUES (?)", (number,))
+        applied = len(MIGRATIONS) - current
+        if applied:
+            print(f"DB migrated: v{current} -> v{len(MIGRATIONS)} ({applied} applied)")
 
 
 def row_to_dict(row):
@@ -127,6 +174,8 @@ def create_event():
     data = request.get_json(silent=True) or {}
     if not (data.get("name") or "").strip():
         return jsonify({"error": "Name is required"}), 400
+    if not data.get("event_type"):
+        data["event_type"] = "concert"  # None would override the column DEFAULT
 
     vals = [data.get(f) for f in EVENT_FIELDS]
     placeholders = ", ".join("?" for _ in EVENT_FIELDS)
@@ -365,12 +414,14 @@ def backup():
         fd, tmp_db = tempfile.mkstemp(suffix=".db")
         os.close(fd)
         try:
-            src = get_db()
+            src = _connect()
             dst = sqlite3.connect(tmp_db)
-            with dst:
-                src.backup(dst)
-            src.close()
-            dst.close()
+            try:
+                with dst:
+                    src.backup(dst)
+            finally:
+                src.close()
+                dst.close()
             z.write(tmp_db, "events.db")
         finally:
             os.remove(tmp_db)
@@ -448,6 +499,7 @@ def import_backup():
             shutil.copytree(src_up, UPLOADS_DIR)
         os.makedirs(UPLOADS_DIR, exist_ok=True)
 
+    init_db()  # backup may predate current schema — bring it up to date
     return jsonify({"status": "imported"}), 200
 
 
