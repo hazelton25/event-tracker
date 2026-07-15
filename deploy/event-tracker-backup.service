@@ -1,0 +1,15 @@
+# systemd --user oneshot unit that runs deploy/backup.sh, paired with
+# event-tracker-backup.timer for the nightly schedule (the launchd equivalent
+# is com.ben.eventtracker.backup.plist).
+#
+# Install: see event-tracker-backup.timer.
+# Logs:    journalctl --user -u event-tracker-backup -f
+[Unit]
+Description=Event Tracker nightly backup
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ben/projects/event-tracker
+ExecStart=/home/ben/projects/event-tracker/deploy/backup.sh
+Environment=BACKUP_DIR=/home/ben/backups/event-tracker
+Environment=KEEP=14

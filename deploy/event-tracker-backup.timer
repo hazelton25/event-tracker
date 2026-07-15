@@ -1,0 +1,20 @@
+# Nightly 03:30 trigger for event-tracker-backup.service.
+#
+# Install:
+#   cp deploy/event-tracker-backup.service deploy/event-tracker-backup.timer \
+#     ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now event-tracker-backup.timer
+#   systemctl --user start event-tracker-backup   # test it immediately
+#
+# Persistent=true catches up a missed 03:30 run if the machine was asleep/off
+# — same behavior the launchd StartCalendarInterval comment calls out.
+[Unit]
+Description=Event Tracker nightly backup timer
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

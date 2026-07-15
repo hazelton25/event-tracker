@@ -1,0 +1,30 @@
+# systemd --user unit for Event Tracker on Linux (the launchd equivalent for
+# macOS is com.ben.eventtracker.plist) — boot-time autostart + crash recovery.
+#
+# Install:
+#   1. Edit WorkingDirectory + ExecStart below to your repo path if different.
+#   2. mkdir -p ~/.config/systemd/user
+#      cp deploy/event-tracker.service ~/.config/systemd/user/
+#   3. loginctl enable-linger "$USER"   # start at boot even with no login
+#   4. systemctl --user daemon-reload
+#      systemctl --user enable --now event-tracker
+#
+# Logs:  journalctl --user -u event-tracker -f
+# Stop:  systemctl --user stop event-tracker
+[Unit]
+Description=Event Tracker
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ben/projects/event-tracker
+ExecStart=/home/ben/projects/event-tracker/run.sh
+Restart=on-failure
+RestartSec=10
+Environment=PORT=8093
+Environment=HOST=tailscale
+Environment=SETLISTFM_API_KEY=PASTE-YOUR-KEY-HERE
+
+[Install]
+WantedBy=default.target

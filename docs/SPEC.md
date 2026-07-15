@@ -71,18 +71,30 @@ All JSON. CORS enabled (trusted-network deployment).
 
 ## Network & environment
 
-- `HOST=tailscale` (default in the plist): binds the detected 100.x Tailscale
-  IP **and** 127.0.0.1; falls back to localhost-only with a warning if
-  Tailscale is down. `HOST=0.0.0.0` for LAN-wide. `PORT` (default 8093),
+- `HOST=tailscale` (default in the service definition): binds the detected
+  100.x Tailscale IP **and** 127.0.0.1; falls back to localhost-only with a
+  warning if Tailscale is down (OS-agnostic — plain socket trick, no macOS
+  API). `HOST=0.0.0.0` for LAN-wide. `PORT` (default 8093),
   `SETLISTFM_API_KEY`, `EVENTTRACKER_DB`, `EVENTTRACKER_UPLOADS`.
 
 ## Operations (`deploy/`)
 
-- `com.ben.eventtracker.plist` — launchd agent: run at load, restart on crash,
-  logs to `eventtracker.log`
-- `com.ben.eventtracker.backup.plist` + `backup.sh` — nightly 03:30 backup to
-  `~/backups/event-tracker`, newest 14 kept, zip validated before counting,
-  failures logged loudly to `backup.log`
+`run.sh`/`setup.sh` are plain bash + python3/npm, no OS-specific calls, so
+the app itself runs the same on macOS or Linux — only the autostart/
+crash-recovery/backup-timer mechanism differs, since that's OS-level:
+
+- **macOS** (launchd): `com.ben.eventtracker.plist` — run at load, restart on
+  crash, logs to `eventtracker.log`; `com.ben.eventtracker.backup.plist` +
+  `backup.sh` — nightly 03:30 backup
+- **Linux** (systemd --user, e.g. Ubuntu on mini-ai): `event-tracker.service`
+  — restart on crash, `loginctl enable-linger` for boot-time start without a
+  login session, logs via `journalctl --user -u event-tracker`;
+  `event-tracker-backup.service` + `.timer` — same nightly 03:30 backup via
+  `backup.sh`, `Persistent=true` catches up a missed run after sleep/off
+
+Both flavors call the same `backup.sh` (nightly 03:30 backup to
+`~/backups/event-tracker`, newest 14 kept, zip validated before counting,
+failures logged loudly).
 
 ## Testing
 
