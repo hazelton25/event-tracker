@@ -1,9 +1,11 @@
 import React from "react";
 
-// Renders the ticket's image band. Used by both the card front and the
+// Renders the ticket's photo backdrop. Used by both the card front and the
 // adjust-tool preview so they are guaranteed to look identical — `live`
 // lets a caller override the persisted zoom/position with in-progress
-// drag/slider state for real-time feedback.
+// drag/slider state for real-time feedback. `frameProps.className` picks the
+// frame's sizing (e.g. "ticket-photo-card" to fill the card, or
+// "ticket-photo-preview" for a fixed-height block in the adjust tool).
 export default function TicketImage({ event, live, frameProps = {} }) {
   if (!event?.image_url) return null;
 
@@ -12,9 +14,9 @@ export default function TicketImage({ event, live, frameProps = {} }) {
   const posY = live?.pos_y ?? event.image_pos_y ?? 50;
 
   return (
-    <div {...frameProps} className={`ticket-thumb-frame ${frameProps.className || ""}`.trim()}>
+    <div {...frameProps} className={`ticket-photo ${frameProps.className || ""}`.trim()}>
       <img
-        className="ticket-thumb"
+        className="ticket-photo-img"
         src={event.image_url}
         alt=""
         draggable={false}

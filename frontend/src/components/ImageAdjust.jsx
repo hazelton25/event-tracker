@@ -112,7 +112,7 @@ export default function ImageAdjust({ event, onChange }) {
           onPointerMove,
           onPointerUp: endDrag,
           onPointerCancel: endDrag,
-          className: "cursor-grab active:cursor-grabbing select-none touch-none",
+          className: "ticket-photo-preview cursor-grab active:cursor-grabbing select-none touch-none",
         }}
       />
       <div className="flex items-center gap-2 mt-2">

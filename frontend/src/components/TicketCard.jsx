@@ -81,7 +81,7 @@ export default function TicketCard({ event, index, onEdit, onDelete, onImage, on
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: Math.min(index * 0.04, 0.4) }}
       className={`flip-wrap${flipped ? " flipped" : ""}`}
-      style={{ height: 230, filter: "drop-shadow(3px 5px 0 rgba(43,33,24,.25))" }}
+      style={{ height: 260, filter: "drop-shadow(3px 5px 0 rgba(43,33,24,.25))" }}
       onClick={() => setFlipped((f) => !f)}
     >
       <div className="flip-inner">
@@ -89,32 +89,58 @@ export default function TicketCard({ event, index, onEdit, onDelete, onImage, on
         <div className="face front">
           <div className="stub">
             <div
-              className={`stub-main ticket-drop-target${dragOver ? " drag-over" : ""}`}
+              className={`stub-main ticket-drop-target${event.image_url ? " has-photo" : ""}${dragOver ? " drag-over" : ""}`}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
             >
-              <TicketImage event={event} />
-              <span
-                className="inline-block font-mono text-[10px] tracking-[2px] uppercase px-2 py-[2px] mb-2"
-                style={{ border: `1px solid ${meta.color}`, color: meta.color }}
-              >
-                {meta.label}
-              </span>
-              <h3 className="font-stamp font-bold uppercase leading-[1.05] tracking-wide text-[22px]">
-                {event.name}
-              </h3>
-              <div className="font-mono text-[13px] mt-2 text-[#5a4f3d]">
-                {event.venue}
-                {event.city ? ` — ${event.city}` : ""}
-              </div>
+              {event.image_url ? (
+                <>
+                  <TicketImage event={event} frameProps={{ className: "ticket-photo-card" }} />
+                  <div className="ticket-scrim" />
+                  <span className="ticket-photo-badge inline-block font-mono text-[10px] tracking-[2px] uppercase px-2 py-[2px] text-gold border border-gold">
+                    {meta.label}
+                  </span>
+                  <div className="ticket-photo-content">
+                    <h3 className="font-stamp font-bold uppercase leading-[1.05] tracking-wide text-[22px] text-stock">
+                      {event.name}
+                    </h3>
+                    <div className="font-mono text-[13px] mt-2 text-[#d8cbb3]">
+                      {event.venue}
+                      {event.city ? ` — ${event.city}` : ""}
+                    </div>
+                    <div className="mt-2 flex justify-between items-end">
+                      <span className="font-stamp font-semibold text-[15px] tracking-wide text-stock">
+                        {fmtDate(event.date)}
+                      </span>
+                      <span className="stamp">ATTENDED</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span
+                    className="inline-block font-mono text-[10px] tracking-[2px] uppercase px-2 py-[2px] mb-2"
+                    style={{ border: `1px solid ${meta.color}`, color: meta.color }}
+                  >
+                    {meta.label}
+                  </span>
+                  <h3 className="font-stamp font-bold uppercase leading-[1.05] tracking-wide text-[22px]">
+                    {event.name}
+                  </h3>
+                  <div className="font-mono text-[13px] mt-2 text-[#5a4f3d]">
+                    {event.venue}
+                    {event.city ? ` — ${event.city}` : ""}
+                  </div>
 
-              <div className="absolute bottom-3 left-[18px] right-[18px] flex justify-between items-end">
-                <span className="font-stamp font-semibold text-[15px] tracking-wide">
-                  {fmtDate(event.date)}
-                </span>
-                <span className="stamp">ATTENDED</span>
-              </div>
+                  <div className="absolute bottom-3 left-[18px] right-[18px] flex justify-between items-end">
+                    <span className="font-stamp font-semibold text-[15px] tracking-wide">
+                      {fmtDate(event.date)}
+                    </span>
+                    <span className="stamp">ATTENDED</span>
+                  </div>
+                </>
+              )}
             </div>
             <div className="stub-side">
               <span className="admit">Admit One</span>
