@@ -173,6 +173,12 @@ MIGRATIONS = [
     """,
     # 3 — structured setlist + attendees (tables defined in the callable)
     _migration_3_structured_fields,
+    # 4 — non-destructive image pan/zoom (focal point + zoom level)
+    """
+    ALTER TABLE events ADD COLUMN image_zoom REAL NOT NULL DEFAULT 1.0;
+    ALTER TABLE events ADD COLUMN image_pos_x REAL NOT NULL DEFAULT 50.0;
+    ALTER TABLE events ADD COLUMN image_pos_y REAL NOT NULL DEFAULT 50.0;
+    """,
 ]
 
 EVENT_FIELDS = (  # direct columns; setlist/attendees live in their own tables
@@ -475,8 +481,42 @@ def set_event_image(event_id):
 
     with get_db() as conn:
         conn.execute(
-            "UPDATE events SET image_url = ?, updated_at = datetime('now') WHERE id = ?",
+            "UPDATE events SET image_url = ?, image_zoom = 1.0, image_pos_x = 50.0,"
+            " image_pos_y = 50.0, updated_at = datetime('now') WHERE id = ?",
             (local_path, event_id),
+        )
+        updated = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+        return jsonify(serialize_event(conn, updated))
+
+
+@app.route("/api/events/<int:event_id>/image/adjust", methods=["PATCH"])
+def adjust_event_image(event_id):
+    """Persist non-destructive pan/zoom for an already-set image."""
+    data = request.get_json(silent=True) or {}
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT image_url FROM events WHERE id = ?", (event_id,)
+        ).fetchone()
+        if row is None:
+            return jsonify({"error": "Event not found"}), 404
+        if not row["image_url"]:
+            return jsonify({"error": "No image set for this event"}), 400
+
+        try:
+            zoom = float(data["zoom"])
+            pos_x = float(data["pos_x"])
+            pos_y = float(data["pos_y"])
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"error": "zoom, pos_x, pos_y are required numbers"}), 400
+
+        zoom = max(1.0, min(3.0, zoom))
+        pos_x = max(0.0, min(100.0, pos_x))
+        pos_y = max(0.0, min(100.0, pos_y))
+
+        conn.execute(
+            "UPDATE events SET image_zoom = ?, image_pos_x = ?, image_pos_y = ?,"
+            " updated_at = datetime('now') WHERE id = ?",
+            (zoom, pos_x, pos_y, event_id),
         )
         updated = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
         return jsonify(serialize_event(conn, updated))

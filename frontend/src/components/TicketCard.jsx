@@ -1,5 +1,8 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
+import TicketImage from "./TicketImage";
+import { extractDroppedImage } from "../lib/imageDrop";
+import { setImageByUrl, setImageByFile } from "../api";
 
 const TYPE_META = {
   concert: { label: "Concert", color: "#B33A2B" },
@@ -29,8 +32,9 @@ function Stars({ rating }) {
   );
 }
 
-export default function TicketCard({ event, index, onEdit, onDelete, onImage }) {
+export default function TicketCard({ event, index, onEdit, onDelete, onImage, onImageDropped }) {
   const [flipped, setFlipped] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const meta = TYPE_META[event.event_type] || TYPE_META.other;
   const serial = "№ " + String(event.id).padStart(6, "0");
   const setlistLines = (event.setlist || "")
@@ -43,13 +47,40 @@ export default function TicketCard({ event, index, onEdit, onDelete, onImage }) 
     fn();
   };
 
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false);
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    const dropped = extractDroppedImage(e.dataTransfer);
+    if (!dropped) return;
+    try {
+      const updated =
+        dropped.type === "file"
+          ? await setImageByFile(event.id, dropped.file)
+          : await setImageByUrl(event.id, dropped.url);
+      onImageDropped(updated);
+    } catch {
+      // best-effort — the picker's own drop zone reports errors explicitly
+    }
+  };
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: Math.min(index * 0.04, 0.4) }}
-      className="flip-wrap"
+      className={`flip-wrap${flipped ? " flipped" : ""}`}
       style={{ height: 230, filter: "drop-shadow(3px 5px 0 rgba(43,33,24,.25))" }}
       onClick={() => setFlipped((f) => !f)}
     >
@@ -57,10 +88,13 @@ export default function TicketCard({ event, index, onEdit, onDelete, onImage }) 
         {/* FRONT */}
         <div className="face front">
           <div className="stub">
-            <div className="stub-main">
-              {event.image_url && (
-                <img className="ticket-thumb" src={event.image_url} alt="" />
-              )}
+            <div
+              className={`stub-main ticket-drop-target${dragOver ? " drag-over" : ""}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <TicketImage event={event} />
               <span
                 className="inline-block font-mono text-[10px] tracking-[2px] uppercase px-2 py-[2px] mb-2"
                 style={{ border: `1px solid ${meta.color}`, color: meta.color }}

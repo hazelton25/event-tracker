@@ -127,14 +127,61 @@ body {
   pointer-events: none;
 }
 
-/* card thumbnail (front-of-ticket image band) */
-.ticket-thumb {
+/* card thumbnail (front-of-ticket image band) — also reused verbatim by the
+   image-adjust preview, so the crop tool shows exactly what the card shows */
+.ticket-thumb-frame {
   width: 100%;
   height: 70px;
-  object-fit: cover;
   border: 1.5px solid #2b2118;
-  filter: sepia(0.25) contrast(1.05);
   margin-bottom: 10px;
+  overflow: hidden;
+  position: relative;
+}
+.ticket-thumb {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  filter: sepia(0.25) contrast(1.05);
+}
+
+/* drag & drop affordance on the card front */
+.ticket-drop-target {
+  position: relative;
+}
+.ticket-drop-target.drag-over::after {
+  content: "Drop image to set";
+  position: absolute;
+  inset: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #b33a2b;
+  background: rgba(251, 245, 233, 0.9);
+  color: #b33a2b;
+  font-family: "Courier Prime", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-align: center;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* drop zone inside the image picker */
+.image-drop-zone {
+  border: 2px dashed #b5a98f;
+  padding: 14px;
+  text-align: center;
+  font-family: "Courier Prime", monospace;
+  font-size: 12px;
+  color: #8a7d63;
+  margin-bottom: 10px;
+  transition: border-color 0.15s, color 0.15s;
+}
+.image-drop-zone.drag-over {
+  border-color: #b33a2b;
+  color: #b33a2b;
 }
 
 /* scrollbars inside card backs */

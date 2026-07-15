@@ -30,6 +30,11 @@ export const setImageByFile = (id, file) => {
   return api.post(`/api/events/${id}/image`, fd).then((r) => r.data);
 };
 
+export const adjustImage = (id, { zoom, pos_x, pos_y }) =>
+  api
+    .patch(`/api/events/${id}/image/adjust`, { zoom, pos_x, pos_y })
+    .then((r) => r.data);
+
 export const importBackup = (file) => {
   const fd = new FormData();
   fd.append("file", file);

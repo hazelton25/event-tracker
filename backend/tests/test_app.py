@@ -381,6 +381,68 @@ def test_image_upload_accepts_jpg(client):
     assert os.path.exists(os.path.join(et.UPLOADS_DIR, os.path.basename(url)))
 
 
+def test_new_event_has_default_image_adjustment(client):
+    ev = make_event(client).get_json()
+    assert ev["image_zoom"] == 1.0
+    assert ev["image_pos_x"] == 50.0
+    assert ev["image_pos_y"] == 50.0
+
+
+def _upload_jpg(client, event_id):
+    return client.post(f"/api/events/{event_id}/image", data={
+        "file": (io.BytesIO(b"\xff\xd8\xff\xe0fakejpg"), "photo.jpg"),
+    }, content_type="multipart/form-data")
+
+
+def test_adjust_image_persists_values(client):
+    ev = make_event(client).get_json()
+    _upload_jpg(client, ev["id"])
+    r = client.patch(f"/api/events/{ev['id']}/image/adjust",
+                      json={"zoom": 2.25, "pos_x": 30, "pos_y": 70})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["image_zoom"] == 2.25
+    assert body["image_pos_x"] == 30
+    assert body["image_pos_y"] == 70
+
+
+def test_adjust_image_clamps_out_of_range_values(client):
+    ev = make_event(client).get_json()
+    _upload_jpg(client, ev["id"])
+    r = client.patch(f"/api/events/{ev['id']}/image/adjust",
+                      json={"zoom": 99, "pos_x": -20, "pos_y": 500})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["image_zoom"] == 3.0
+    assert body["image_pos_x"] == 0.0
+    assert body["image_pos_y"] == 100.0
+
+
+def test_adjust_image_requires_existing_image(client):
+    ev = make_event(client).get_json()
+    r = client.patch(f"/api/events/{ev['id']}/image/adjust",
+                      json={"zoom": 2, "pos_x": 50, "pos_y": 50})
+    assert r.status_code == 400
+
+
+def test_adjust_image_404_for_missing_event(client):
+    r = client.patch("/api/events/999/image/adjust",
+                      json={"zoom": 2, "pos_x": 50, "pos_y": 50})
+    assert r.status_code == 404
+
+
+def test_reuploading_image_resets_adjustment(client):
+    ev = make_event(client).get_json()
+    _upload_jpg(client, ev["id"])
+    client.patch(f"/api/events/{ev['id']}/image/adjust",
+                 json={"zoom": 2.5, "pos_x": 10, "pos_y": 90})
+    r = _upload_jpg(client, ev["id"])
+    body = r.get_json()
+    assert body["image_zoom"] == 1.0
+    assert body["image_pos_x"] == 50.0
+    assert body["image_pos_y"] == 50.0
+
+
 # ----------------------------------------------------------------- setlist.fm
 def test_parse_setlistfm():
     sample = {"setlist": [{

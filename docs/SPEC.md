@@ -20,14 +20,16 @@ Docker was considered and rejected; launchd is the deployment mechanism.
   event/venue/date; back: setlist or notes, attendees, rating), plus
   "The Numbers" stats view in the same aesthetic
 
-## Data model (schema v3)
+## Data model (schema v4)
 
 Schema changes are versioned migrations in `MIGRATIONS` (`backend/app.py`),
 tracked per-database in `schema_version`. Append-only; entries are SQL scripts
 or Python callables. Migrations also run on databases restored from backups.
 
 - `events` — id, name, event_type (concert/sports/festival/theatre/other),
-  date, venue, city, notes, rating (1–5), image_url, created_at, updated_at
+  date, venue, city, notes, rating (1–5), image_url, image_zoom (1.0–3.0,
+  default 1.0), image_pos_x/image_pos_y (0–100 focal-point percent, default
+  50/50), created_at, updated_at
 - `people` — id, name (unique, case-insensitive)
 - `event_people` — event_id, person_id, position (cascade on event delete)
 - `setlist_songs` — id, event_id, position, title, cover_artist
@@ -48,7 +50,11 @@ All JSON. CORS enabled (trusted-network deployment).
 - `GET|PUT|DELETE /api/events/<id>`; `POST /api/events` (name required,
   event_type defaults to concert)
 - `POST /api/events/<id>/image` — multipart `file` upload or JSON `{url}`;
-  remote images are downloaded to `backend/uploads/` so cards never hot-link
+  remote images are downloaded to `backend/uploads/` so cards never hot-link;
+  resets `image_zoom`/`image_pos_x`/`image_pos_y` to defaults
+- `PATCH /api/events/<id>/image/adjust` — `{zoom, pos_x, pos_y}`, clamped to
+  1.0–3.0 / 0–100; non-destructive crop of the existing image (400 if no
+  image is set yet)
 - `GET /api/image-search?q=` — Wikipedia REST proxy (no key), returns
   candidate images
 - `GET /api/setlist-search?artist=&date=` — setlist.fm proxy; requires
@@ -80,11 +86,12 @@ All JSON. CORS enabled (trusted-network deployment).
 
 ## Testing
 
-`backend/tests/` — pytest, 24 tests: CRUD, sort/filter safety, migrations
+`backend/tests/` — pytest, 30 tests: CRUD, sort/filter safety, migrations
 (fresh / legacy adoption / idempotency / backfill of v2 text columns),
 backup–import round trip, import rejection (garbage, zip-slip), image upload
-validation, setlist.fm parsing, structured-field round trips, cascade deletes,
-stats. Run: `python -m pytest tests/` with `requirements-dev.txt` installed.
+validation, image pan/zoom adjustment (persist, clamp, reset-on-reupload),
+setlist.fm parsing, structured-field round trips, cascade deletes, stats.
+Run: `python -m pytest tests/` with `requirements-dev.txt` installed.
 
 ## Non-goals
 

@@ -53,6 +53,18 @@ export default function App() {
     load();
   }, [load]);
 
+  // A drop that misses a card's drop target shouldn't navigate the browser
+  // away from the app (the default behavior for a dropped file/image).
+  useEffect(() => {
+    const prevent = (e) => e.preventDefault();
+    window.addEventListener("dragover", prevent);
+    window.addEventListener("drop", prevent);
+    return () => {
+      window.removeEventListener("dragover", prevent);
+      window.removeEventListener("drop", prevent);
+    };
+  }, []);
+
   const handleSave = async (payload) => {
     if (editing && editing.id) {
       await updateEvent(editing.id, payload);
@@ -70,9 +82,13 @@ export default function App() {
     }
   };
 
-  const handleImageSaved = (updated) => {
+  const handleImageChange = (updated) => {
     setEvents((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-    setImaging(null);
+  };
+
+  const handleImageDropped = (updated) => {
+    setEvents((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+    setImaging(updated); // open the adjust tool right after a card-front drop
   };
 
   return (
@@ -175,6 +191,7 @@ export default function App() {
               onEdit={setEditing}
               onDelete={handleDelete}
               onImage={setImaging}
+              onImageDropped={handleImageDropped}
             />
           ))}
         </div>
@@ -197,7 +214,7 @@ export default function App() {
         <ImagePicker
           event={imaging}
           onClose={() => setImaging(null)}
-          onSaved={handleImageSaved}
+          onChange={handleImageChange}
         />
       )}
     </div>

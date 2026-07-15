@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { searchImages, setImageByUrl, setImageByFile } from "../api";
+import { extractDroppedImage } from "../lib/imageDrop";
+import ImageAdjust from "./ImageAdjust";
 
-export default function ImagePicker({ event, onClose, onSaved }) {
+export default function ImagePicker({ event: initialEvent, onClose, onChange }) {
+  const [event, setEvent] = useState(initialEvent);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pasteUrl, setPasteUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [dragOver, setDragOver] = useState(false);
   const fileRef = React.useRef(null);
 
   const runSearch = async (q) => {
@@ -32,11 +36,27 @@ export default function ImagePicker({ event, onClose, onSaved }) {
     setErr("");
     try {
       const updated = await fn();
-      onSaved(updated);
+      setEvent(updated);
+      onChange(updated);
     } catch (e) {
       setErr(e?.response?.data?.error || "Could not set image.");
-      setBusy(false);
     }
+    setBusy(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = extractDroppedImage(e.dataTransfer);
+    if (!dropped) {
+      setErr("Couldn't read that as an image — try a file or a direct image URL.");
+      return;
+    }
+    apply(() =>
+      dropped.type === "file"
+        ? setImageByFile(event.id, dropped.file)
+        : setImageByUrl(event.id, dropped.url)
+    );
   };
 
   return (
@@ -47,6 +67,16 @@ export default function ImagePicker({ event, onClose, onSaved }) {
           <button onClick={onClose} className="font-mono text-sm underline">close</button>
         </div>
         <p className="font-mono text-xs text-faded mb-4">for "{event.name}"</p>
+
+        {event.image_url && (
+          <ImageAdjust
+            event={event}
+            onChange={(updated) => {
+              setEvent(updated);
+              onChange(updated);
+            }}
+          />
+        )}
 
         {/* search box */}
         <div className="flex gap-2 mb-4">
@@ -109,17 +139,30 @@ export default function ImagePicker({ event, onClose, onSaved }) {
           </button>
         </div>
 
-        {/* upload */}
+        {/* upload / drag & drop */}
         <label className="font-stamp text-[11px] tracking-[2px] uppercase text-faded mb-1 block">
-          Upload from device
+          Upload, or drag & drop
         </label>
-        <button
-          disabled={busy}
-          onClick={() => fileRef.current.click()}
-          className="font-mono text-[13px] border-[1.5px] border-ink px-3 py-2 w-full text-left disabled:opacity-50"
+        <div
+          className={`image-drop-zone${dragOver ? " drag-over" : ""}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false);
+          }}
+          onDrop={handleDrop}
         >
-          choose a file…
-        </button>
+          <p className="mb-2">drag an image file, or one dragged from a webpage, here</p>
+          <button
+            disabled={busy}
+            onClick={() => fileRef.current.click()}
+            className="font-mono text-[13px] border-[1.5px] border-ink px-3 py-2 w-full text-left disabled:opacity-50 bg-stock"
+          >
+            choose a file…
+          </button>
+        </div>
         <input
           ref={fileRef}
           type="file"
